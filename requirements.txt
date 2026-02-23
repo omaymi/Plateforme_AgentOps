@@ -1,0 +1,12 @@
+ollama 
+langchain 
+langchain_community 
+langchain_chroma 
+scikit-learn 
+gensim 
+streamlit 
+langchain-ollama
+pypdf
+chromadb
+#front
+streamlit
