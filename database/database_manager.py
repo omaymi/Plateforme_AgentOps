@@ -48,6 +48,13 @@ class DatabaseManager:
             row = cursor.fetchone()
             return dict(row) if row else None       
 
+    def delete_agent(self, agent_id):
+        """Supprime un agent de la base de données."""
+        query = "DELETE FROM agents WHERE id = ?;"
+        with self.get_connection() as conn:
+            conn.execute(query, (agent_id,))
+            conn.commit()
+
 # --- TEST RAPIDE ---
 if __name__ == "__main__":
     db = DatabaseManager()

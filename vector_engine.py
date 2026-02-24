@@ -41,20 +41,20 @@ class VectorEngine:
 
 
 
-# --- TEST RAPIDE ---
-if __name__ == "__main__":
-    docs = [
-        "Le chat mange de la souris.",
-        "Le langage Python est super pour l'IA.",
-        "Mistral est une entreprise française de technologie.",
-        "L'intelligence artificielle transforme le monde."
-    ]
+# # --- TEST RAPIDE ---
+# if __name__ == "__main__":
+#     docs = [
+#         "Le chat mange de la souris.",
+#         "Le langage Python est super pour l'IA.",
+#         "Mistral est une entreprise française de technologie.",
+#         "L'intelligence artificielle transforme le monde."
+#     ]
     
-    engine = VectorEngine(docs)
-    engine.fit_tfidf()
-    engine.fit_cbow()
+#     engine = VectorEngine(docs)
+#     engine.fit_tfidf()
+#     engine.fit_cbow()
     
-    question = "est ce que les nouvelles technologies sont ameliorer la vie ?"
+#     question = "est ce que les nouvelles technologies sont ameliorer la vie ?"
 
-    resultat = engine.search(question, method="tfidf")
-    print(f"Question: {question}\nDocument trouvé: {resultat}")
+#     resultat = engine.search(question, method="tfidf")
+#     print(f"Question: {question}\nDocument trouvé: {resultat}")

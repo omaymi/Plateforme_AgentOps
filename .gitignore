@@ -17,6 +17,8 @@ agents_platform.db
 db_history_agent_*/
 db_vectors/
 some_test_initial/
+db_history/
+knowledge/
 
 # IDEs
 .vscode/
