@@ -5,4 +5,6 @@
 # vector_engine.py       # le moteur manuel (TF-IDF/CBOW)
 # database/database_manager.py # Gestion de la base de données SQLite
 # test_connection.py     # Script de test de connexion à Ollama
-
+# agents_platform.db  → configuration agents sqlite
+# db_vectors/         → embeddings documents
+# db_history/         → mémoire conversationnelle

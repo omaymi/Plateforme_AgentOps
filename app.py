@@ -1,90 +1,113 @@
 import streamlit as st
 import os
+import re
+import shutil
+import time
 from state_manager import SessionState
 from database.database_manager import DatabaseManager
+from ingestion import DocumentProcessor
 
 # --- 1. CONFIGURATION & STYLE ---
 st.set_page_config(page_title="AgentOps Factory", page_icon="⚡", layout="wide")
-st.markdown("""
-    <style>
-    /* 1. Centrer la ligne des onglets */
-    button[data-baseweb="tab"] {
-        flex-grow: 1; /* Force les onglets à prendre toute la largeur */
-        justify-content: center;
-    }
 
-    /* 2. Agrandir le texte et l'espacement des onglets */
-    div[data-baseweb="tab-list"] {
-        gap: 20px; /* Espace entre les onglets */
-        width: 100%;
-        display: flex;
-        justify-content: center;
-    }
+def apply_custom_style():
+    st.markdown("""
+        <style>
+        /* Design des onglets */
+        button[data-baseweb="tab"] { flex-grow: 1; justify-content: center; }
+        div[data-baseweb="tab-list"] { gap: 20px; width: 100%; display: flex; justify-content: center; }
+        button[data-baseweb="tab"] div p { font-size: 22px !important; font-weight: 600 !important; padding: 10px 20px; }
+        div[data-baseweb="tab-highlight"] { background-color: #238636 !important; height: 4px !important; }
 
-    /* Style du texte à l'intérieur des onglets */
-    button[data-baseweb="tab"] div p {
-        font-size: 22px !important; /* Taille de la police augmentée */
-        font-weight: 600 !important;
-        padding: 10px 20px;
-    }
+        /* Dark Mode Modern Look */
+        .stApp { background: linear-gradient(160deg, #0e1117 0%, #161b22 100%); }
+        div[data-baseweb="tab-panel"] {
+            background-color: #1c2128; padding: 2rem; border-radius: 15px;
+            border: 1px solid #30363d; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        section[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
+        
+        /* Boutons stylisés */
+        .stButton>button { border-radius: 8px; transition: all 0.3s ease; background-color: #238636; color: white; border: none; }
+        .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(35, 134, 54, 0.4); }
+        
+        /* Style spécifique pour le container d'authentification */
+        .auth-box {
+            background-color: #1c2128;
+            padding: 30px;
+            border-radius: 15px;
+            border: 1px solid #30363d;
+            text-align: center;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
-    /* Barre de sélection sous l'onglet actif */
-    div[data-baseweb="tab-highlight"] {
-        background-color: #238636 !important; /* Couleur verte pour matcher le bouton */
-        height: 4px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-# Injection de CSS Custom pour un look "Dark Mode Modern"
-st.markdown("""
-    <style>
-    /* Gradient de fond et police */
-    .stApp {
-        background: linear-gradient(160deg, #0e1117 0%, #161b22 100%);
-    }
-    
-    /* Style des cartes pour les onglets */
-    div[data-baseweb="tab-panel"] {
-        background-color: #1c2128;
-        padding: 2rem;
-        border-radius: 15px;
-        border: 1px solid #30363d;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
+apply_custom_style()
 
-    /* Personnalisation de la sidebar */
-    section[data-testid="stSidebar"] {
-        background-color: #0d1117;
-        border-right: 1px solid #30363d;
-    }
-
-    /* Boutons stylisés */
-    .stButton>button {
-        border-radius: 8px;
-        transition: all 0.3s ease;
-        background-color: #238636;
-        color: white;
-        border: none;
-    }
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(35, 134, 54, 0.4);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# Initialisation
-if "app_state" not in st.session_state:
-    st.session_state.app_state = SessionState()
-    st.session_state.messages = []
-
+# --- 2. INITIALISATION ---
 db = DatabaseManager()
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "app_state" not in st.session_state or not hasattr(st.session_state.app_state, 'add_new_knowledge'):
+    st.session_state.app_state = SessionState(user_id=None)
+
+# --- 3. LOGIQUE D'AUTHENTIFICATION ---
+def show_auth_page():
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 1.5, 1])
+    
+    with col:
+        st.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=80)
+        st.title("AgentOps **Factory**")
+        
+        mode = st.tabs(["Connexion", "Créer un compte"])
+        
+        # Onglet Connexion
+        with mode[0]:
+            with st.form("login_form"):
+                u_log = st.text_input("Nom d'utilisateur")
+                p_log = st.text_input("Mot de passe", type="password")
+                if st.form_submit_button("Se connecter", use_container_width=True):
+                    user = db.verify_user(u_log, p_log)
+                    if user:
+                        st.session_state.user = user
+                        st.rerun()
+                    else:
+                        st.error("Identifiants incorrects")
+        
+        # Onglet Inscription
+        with mode[1]:
+            with st.form("register_form"):
+                u_reg = st.text_input("Choisir un pseudo")
+                p_reg = st.text_input("Choisir un mot de passe", type="password")
+                if st.form_submit_button("S'inscrire", use_container_width=True):
+                    if len(u_reg) > 2 and len(p_reg) > 4:
+                        new_id = db.create_user(u_reg, p_reg)
+                        if new_id:
+                            st.success("Compte créé ! Connectez-vous.")
+                        else:
+                            st.error("Ce nom d'utilisateur est déjà pris.")
+                    else:
+                        st.warning("Pseudo (>2 car.) ou mot de passe (>4 car.) trop court.")
+
+# Vérification du verrouillage
+if st.session_state.user is None:
+    show_auth_page()
+    st.stop()
+
+# --- 4. VARIABLES DE SESSION UTILISATEUR ---
+user_id = st.session_state.user["id"]
+username = st.session_state.user["username"]
 app_state = st.session_state.app_state
 
-# --- 2. FONCTIONS UTILITAIRES ---
+# Mettre à jour user_id si pas encore fait (ex: après connexion)
+if app_state.user_id is None:
+    app_state.user_id = user_id
+
 def parse_response(content):
-    """Extrait le contenu entre les balises <think> et le reste de la réponse."""
-    import re
     think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
     if think_match:
         thinking = think_match.group(1).strip()
@@ -92,93 +115,114 @@ def parse_response(content):
         return thinking, answer
     return None, content
 
-# --- 3. SIDEBAR (Le "Control Center") ---
+# --- 5. SIDEBAR (Control Center) ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=90) # Logo fictif
-    st.title("AgentOps **Factory**")
+    st.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=60)
+    st.subheader(f"👤 {username}")
     
+    if st.button("🚪 Déconnexion", use_container_width=True):
+        st.session_state.user = None
+        st.session_state.messages = []
+        st.rerun()
+
     st.markdown("---")
     
-    # Sélecteur d'agent avec design épuré
-    agents = db.get_all_agents()
-    if agents:
-        agent_names = [a['name'] for a in agents]
-        selected_agent_name = st.selectbox("Agent Actif", agent_names)
-        agent_id = next(a['id'] for a in agents if a['name'] == selected_agent_name)
-        app_state.load_agent(agent_id)
+    # Récupération des agents propres à l'utilisateur
+    user_agents = db.get_user_agents(user_id)
+    
+    if user_agents:
+        agent_names = [a['name'] for a in user_agents]
+        selected_name = st.selectbox("#### Agent Actif", agent_names)
+        current_agent = next(a for a in user_agents if a['name'] == selected_name)
         
-        # Badge de statut
-        st.info(f"**Mode:** {app_state.orchestrator.agent_config['vector_method'].upper()}")
+        # Charger l'agent s'il change
+        if app_state.current_agent_id != current_agent['id']:
+            app_state.load_agent(current_agent['id'])
+        
+        st.info(f"**Moteur:** {current_agent['vector_method'].upper()}")
     else:
-        st.warning("⚠️ Aucun agent détecté")
+        st.warning("Aucun agent détecté")
 
     st.markdown("---")
-    
-    # Upload avec zone de drop visuelle
-    st.markdown("### Knowledge Base")
-    uploaded_file = st.file_uploader("Nourrir l'intelligence", type=["pdf", "txt"], label_visibility="collapsed")
 
-    if uploaded_file:
-        # On utilise un dossier temporaire avant que state_manager ne le déplace dans le dossier de l'agent
-        temp_dir = "temp_files"
-        os.makedirs(temp_dir, exist_ok=True)
-        file_path = os.path.join(temp_dir, uploaded_file.name)
-        
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        if st.button("🚀 Indexer le savoir", use_container_width=True):
-            if agents:
-                with st.spinner("Vecteurs en cours de création..."):
-                    app_state.process_document(file_path)
-                    st.toast("Connaissance synchronisée !", icon="✅")
-            else:
-                st.error("Créez un agent avant d'ajouter des documents.")
 
-# --- 3. DASHBOARD PRINCIPAL ---
-tab_chat, tab_manage = st.tabs(["Terminal de Chat", "Studio de Création"])
 
-# --- ONGLET 1 : CHAT (Style Messagerie) ---
+st.markdown("### Knowledge Base")
+uploaded_file = st.file_uploader("Nourrir l'intelligence", type=["pdf", "txt"], label_visibility="collapsed")
+
+if uploaded_file and user_agents:
+    if st.button("Indexer", use_container_width=True):
+        if app_state.current_agent_id is None:
+            st.error("Veuillez d'abord sélectionner un agent dans la barre latérale.")
+        else:
+            with st.spinner("Analyse vectorielle en cours..."):
+                # 1. On récupère la méthode de l'agent actif
+                # C'est l'étape qui manquait pour éviter l'erreur
+                method = app_state.orchestrator.agent_config.get('vector_method', 'tfidf')
+                
+                # 2. On traite le fichier (en mémoire, pas de fichier temp)
+                processor = DocumentProcessor()
+                chunks = processor.process_uploaded_file(uploaded_file)
+                
+                # 3. On stocke selon la méthode
+                if method == "sbert":
+                    if app_state.vector_db:
+                        app_state.vector_db.add_texts(chunks)
+                else:
+                    if app_state.memory_engine:
+                        app_state.memory_engine.documents.extend(chunks)
+                        
+                        # 4. On recalcule l'indexation (le catalogue)
+                        if method == "tfidf":
+                            app_state.memory_engine.fit_tfidf()
+                        elif method == "cbow":
+                            app_state.memory_engine.fit_cbow()
+                
+                st.toast(f"'{uploaded_file.name}' a été assimilé par l'agent !", icon="✅")
+                time.sleep(1)
+                st.rerun()
+                
+# --- 6. DASHBOARD PRINCIPAL ---
+tab_chat, tab_manage = st.tabs(["💬 Terminal de Chat", "🛠️ Studio de Création"])
+
+# ONGLET 1 : CHAT
 with tab_chat:
-    # Zone de messages
-    chat_container = st.container(height=500, border=False) # Augmenté pour visibilité
+    chat_container = st.container(height=250, border=True)
     with chat_container:
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
-                if message["role"] == "assistant":
-                    thinking, answer = parse_response(message["content"])
-                    if thinking:
-                        with st.expander("💭 Réflexion de l'agent", expanded=False):
-                            st.write(thinking)
-                    st.markdown(answer)
-                else:
-                    st.markdown(message["content"])
-
-    # Input flottant
-    if prompt := st.chat_input("Envoyez une commande..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with chat_container:
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            # Génération de la réponse
-        with st.chat_message("assistant"):
-            with st.spinner("L'agent réfléchit..."):
-                response, context = app_state.ask_question(prompt)
-                
-                thinking, answer = parse_response(response)
-                if thinking:
-                    with st.expander("💭 Réflexion de l'agent", expanded=True):
+                thinking, answer = parse_response(message["content"])
+                if thinking and message["role"] == "assistant":
+                    with st.expander("💭 Réflexion", expanded=False):
                         st.write(thinking)
                 st.markdown(answer)
-            
-                if context and len(context.strip()) > 50: 
-                    with st.expander("🔍 Sources & Mémoire consultées"):
-                        st.write(context)
-            
-                st.session_state.messages.append({"role": "assistant", "content": response})
 
-# --- ONGLET 2 : STUDIO (Grille moderne) ---
+    if prompt := st.chat_input("Posez une question à votre agent..."):
+        if not user_agents:
+            st.error("Créez d'abord un agent dans le Studio.")
+        else:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("L'agent réfléchit..."):
+                    response, context = app_state.ask_question(prompt)
+                    thinking, answer = parse_response(response)
+                    
+                    if thinking:
+                        with st.expander("💭 Réflexion", expanded=True):
+                            st.write(thinking)
+                    st.markdown(answer)
+                    
+                    if context and len(context) > 20:
+                        with st.expander("🔍 Sources consultées"):
+                            st.write(context)
+                    
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+
+# ONGLET 2 : STUDIO
 with tab_manage:
     st.header("Agent Studio")
     
@@ -186,91 +230,62 @@ with tab_manage:
         with st.form("new_agent_form", border=False):
             c1, c2 = st.columns(2)
             with c1:
-                name = st.text_input("Nom unique", placeholder="Ex: Jarvis")
-                model = st.selectbox("Modèle LLM", ["mistral", "deepseek-r1"], index=0)
-                method = st.segmented_control("Vectorisation", ["tfidf", "sbert", "cbow"], default="sbert")
+                name = st.text_input("Nom de l'agent", placeholder="Ex: Jarvis")
+                model = st.selectbox("Modèle LLM", ["llama3.1:8b", "mistral-nemo:12b", "gemma3:12b", "phi4:14b"])
+                method = st.segmented_control("Méthode RAG", ["tfidf", "sbert", "cbow"], default="sbert")
             with c2:
-                temp = st.slider("Créativité (Température)", 0.0, 1.0, 0.4)
-                system_prompt = st.text_area("Instructions Système", placeholder="Tu es un expert en...")
+                temp = st.slider("Température", 0.0, 1.0, 0.4)
+                system_prompt = st.text_area("Instructions (Prompt Système)")
             
-            # NOUVEAU : Upload de connaissance lors de la création
             st.markdown("---")
-            initial_docs = st.file_uploader("Documents de base (Facultatif)", type=["pdf", "txt"], accept_multiple_files=True)
-            
-            if st.form_submit_button(" Forger l'Agent", use_container_width=True):
+            initial_docs = st.file_uploader("Documents initiaux", type=["pdf", "txt"], accept_multiple_files=True)
+        
+            # Correction : Le bouton de soumission est bien dans le formulaire
+            if st.form_submit_button("🔨 Forger l'Agent", use_container_width=True):
                 if name and system_prompt:
-                    # 1. Création de l'agent en base
-                    agent_id = db.create_agent(name, model, method, system_prompt, temp)
-                    
-                    # 2. Gestion des documents initiaux
+                    # Enregistrement en DB avec le USER_ID
+                    new_agent_id = db.create_agent(user_id, name, model, method, system_prompt, temp)
+                    app_state.load_agent(new_agent_id)
+
                     if initial_docs:
-                        # On définit le dossier de destination isolé
-                        agent_knowledge_dir = os.path.join("knowledge", f"agent_{agent_id}")
-                        os.makedirs(agent_knowledge_dir, exist_ok=True)
+                        processor = DocumentProcessor()
+                        for f in initial_docs:
+                            chunks = processor.process_uploaded_file(f)
+                            # On ajoute directement à la mémoire vectorielle active
+                            if method == "sbert":
+                                app_state.vector_db.add_texts(chunks)
+                            else:
+                                app_state.memory_engine.documents.extend(chunks)
                         
-                        for uploaded_file in initial_docs:
-                            dest_path = os.path.join(agent_knowledge_dir, uploaded_file.name)
-                            with open(dest_path, "wb") as f:
-                                f.write(uploaded_file.getbuffer())
-                    
+                        # Entraîner le vectoriseur après avoir tout chargé
+                        if method == "tfidf" and app_state.memory_engine.documents:
+                            app_state.memory_engine.fit_tfidf()
+                        elif method == "cbow" and app_state.memory_engine.documents:
+                            app_state.memory_engine.fit_cbow()
+
                     st.balloons()
-                    st.success(f"Agent {name} déployé avec sa connaissance !")
+                    st.success(f"Agent {name} déployé avec succès !")
+                    time.sleep(1)
                     st.rerun()
+                else:
+                    st.error("Le nom et les instructions sont obligatoires.")
 
     st.markdown("---")
-    st.subheader(" Flotte d'Agents")
-    all_agents_list = db.get_all_agents() 
-    
-    if all_agents_list:
-        # On affiche une liste avec des boutons de suppression au lieu d'un dataframe statique
-        for agent in all_agents_list:
+    st.subheader("🚢 Ma Flotte")
+    if user_agents:
+        for agent in user_agents:
             cols = st.columns([3, 2, 2, 1])
-            with cols[0]:
-                st.write(f"**{agent['name']}** ({agent['model']})")
-            with cols[1]:
-                st.caption(f"Vector: {agent['vector_method']}")
-            with cols[2]:
-                st.caption(f"Temp: {agent['temperature']}")
-            with cols[3]:
-                if st.button("🗑️", key=f"delete_{agent['id']}", help="Supprimer cet agent"):
-                    # 1. Décharger l'agent s'il est actif pour libérer les fichiers (LOCK)
-                    if app_state.current_agent_id == agent['id']:
-                        app_state.unload_current_agent()
-                        st.session_state.messages = [] # On vide aussi l'affichage
-                    
-                    # 2. Suppression Base de données
-                    db.delete_agent(agent['id'])
-                    
-                    # 3. Nettoyage Fichiers (avec gestion robuste des erreurs Windows)
-                    import shutil
-                    import time
-                    
-                    dirs_to_clean = [
-                        os.path.join("knowledge", f"agent_{agent['id']}"),
-                        os.path.join("db_vectors", f"agent_{agent['id']}"),
-                        os.path.join("db_history", f"agent_{agent['id']}"),
-                        # Chemins "legacy" (anciennes versions du code)
-                        f"db_history_agent_{agent['id']}",
-                        f"db_vectors_agent_{agent['id']}"
-                    ]
-                    
-                    # On attend un tout petit peu que les handles se libèrent
-                    time.sleep(0.5)
-                    
-                    for d in dirs_to_clean:
-                        if os.path.exists(d):
-                            try:
-                                shutil.rmtree(d)
-                            except PermissionError:
-                                # Si Windows bloque encore, on attend encore un peu et on réessaie une fois
-                                time.sleep(1)
-                                try:
-                                    shutil.rmtree(d)
-                                except Exception as e:
-                                    st.error(f"Erreur lors du nettoyage des fichiers : {e}")
-                    
-                    st.toast(f"Agent {agent['name']} supprimé.", icon="🗑️")
-                    time.sleep(0.5)
+            cols[0].write(f"**{agent['name']}**")
+            cols[1].caption(f"🤖 {agent['model']}")
+            cols[2].caption(f"🧠 {agent['vector_method']}")
+            if cols[3].button("🗑️", key=f"del_{agent['id']}"):
+                # Suppression sécurisée (agent_id + user_id)
+                if db.delete_agent(agent['id'], user_id):
+                    # Nettoyage des dossiers si nécessaire
+                    path = os.path.join("db_vectors", f"agent_{agent['id']}")
+                    if os.path.exists(path):
+                        shutil.rmtree(path)
+                    st.toast(f"Agent {agent['name']} supprimé.")
                     st.rerun()
     else:
-        st.info("Aucun agent configuré pour le moment.")
+        st.info("Vous n'avez pas encore d'agent.")

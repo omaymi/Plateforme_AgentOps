@@ -1,13 +1,13 @@
 from langchain_ollama import OllamaLLM # Version à jour
 from langchain_core.prompts import ChatPromptTemplate
 from database.database_manager import DatabaseManager
-
+import config
 ## Logique de génération LLM (LangChain)
 
 class AgentOrchestrator:
-    def __init__(self, agent_id):
+    def __init__(self, agent_id, user_id):
         self.db = DatabaseManager()
-        self.agent_config = self.db.get_agent_by_id(agent_id)
+        self.agent_config = self.db.get_agent_by_id(agent_id, user_id)
         
         if not self.agent_config:
             raise ValueError("Agent non trouvé dans la base de données.")
@@ -15,7 +15,9 @@ class AgentOrchestrator:
         # 1. Configuration du LLM
         self.llm = OllamaLLM(
             model=self.agent_config['model'],
-            temperature=self.agent_config['temperature']
+            temperature=self.agent_config['temperature'],
+            base_url=config.OLLAMA_HOST,
+            timeout=120
         )
 
         # 2. Le "Moule" de réponse (Prompt Engineering)
